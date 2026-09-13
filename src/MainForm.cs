@@ -15,7 +15,9 @@ namespace ChannelSwitcher
         [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
         [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-        static readonly Color[] OutputColors = { Color.FromArgb(37, 99, 235), Color.FromArgb(234, 88, 12) };
+        // 音声認識側のUIに合わせた色（出力1: #F7E4D5、出力2: #D7EEC3）
+        static readonly Color[] OutputColors = { ColorTranslator.FromHtml("#F7E4D5"), ColorTranslator.FromHtml("#D7EEC3") };
+        static readonly Color ActiveTextColor = Color.FromArgb(32, 32, 32);
         static readonly Color MutedColor = Color.FromArgb(120, 120, 120);
 
         ComboBox cboIn;
@@ -144,8 +146,9 @@ namespace ChannelSwitcher
                 string head = "出力" + (i + 1) + "（Ctrl+Alt+" + (i + 1) + "）";
                 b.Text = head + "\n" + (muted[i] ? "ミュート中" : "ON");
                 b.BackColor = muted[i] ? SystemColors.Control : c;
-                b.ForeColor = muted[i] ? MutedColor : Color.White;
-                b.FlatAppearance.BorderColor = muted[i] ? MutedColor : c;
+                // 背景が淡い色なので、文字は濃い色、枠は背景より濃い同系色にして見分けやすくする
+                b.ForeColor = muted[i] ? MutedColor : ActiveTextColor;
+                b.FlatAppearance.BorderColor = muted[i] ? MutedColor : ControlPaint.Dark(c, 0.3f);
                 b.FlatAppearance.BorderSize = muted[i] ? 1 : 3;
             }
             UpdateStatus();
