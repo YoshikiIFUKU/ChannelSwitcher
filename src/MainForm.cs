@@ -10,23 +10,26 @@ namespace ChannelSwitcher
     {
         const int WM_HOTKEY = 0x0312;
         const int MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_NOREPEAT = 0x4000;
+        const int HotkeyBothOn = 3;
 
         [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
         [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-        static readonly Color LeftColor = Color.FromArgb(37, 99, 235);
-        static readonly Color BothColor = Color.FromArgb(22, 163, 74);
-        static readonly Color RightColor = Color.FromArgb(234, 88, 12);
+        static readonly Color[] OutputColors = { Color.FromArgb(37, 99, 235), Color.FromArgb(234, 88, 12) };
+        static readonly Color MutedColor = Color.FromArgb(120, 120, 120);
 
-        ComboBox cboIn, cboOut;
-        Button btnRefresh, btnStart, btnLeft, btnBoth, btnRight;
-        LevelMeter meterL, meterR;
+        ComboBox cboIn;
+        readonly ComboBox[] cboOut = new ComboBox[AudioRouter.OutputCount];
+        readonly Button[] btnMute = new Button[AudioRouter.OutputCount];
+        readonly LevelMeter[] meterOut = new LevelMeter[AudioRouter.OutputCount];
+        readonly bool[] muted = new bool[AudioRouter.OutputCount];
+        Button btnRefresh, btnStart, btnBothOn;
+        LevelMeter meterIn;
         Label lblStatus, lblCable;
         CheckBox chkTop;
         Timer timer;
 
         AudioRouter router;
-        ChannelMode mode = ChannelMode.Both;
         bool hotkeysOk;
 
         readonly string settingsPath = Path.Combine(
@@ -43,44 +46,57 @@ namespace ChannelSwitcher
 
             AddLabel("入力（マイク）", 16, 16);
             cboIn = AddCombo(16, 40);
-            AddLabel("出力（仮想ケーブル：CABLE Input）", 16, 76);
-            cboOut = AddCombo(16, 100);
-            lblCable = AddLabel("", 16, 130);
+            AddLabel("出力1", 16, 80);
+            cboOut[0] = AddCombo(70, 76);
+            AddLabel("出力2", 16, 114);
+            cboOut[1] = AddCombo(70, 110);
+            for (int i = 0; i < cboOut.Length; i++) cboOut[i].Width = 376;
+
+            lblCable = AddLabel("", 16, 142);
             lblCable.ForeColor = Color.Firebrick;
             lblCable.AutoSize = false;
             lblCable.Size = new Size(430, 20);
 
-            btnRefresh = new Button { Text = "デバイス再読込", Location = new Point(16, 156), Size = new Size(140, 34) };
-            btnRefresh.Click += delegate { LoadDevices(cboIn.Text, cboOut.Text); };
+            btnRefresh = new Button { Text = "デバイス再読込", Location = new Point(16, 166), Size = new Size(140, 34) };
+            btnRefresh.Click += delegate { LoadDevices(cboIn.Text, cboOut[0].Text, cboOut[1].Text); };
             Controls.Add(btnRefresh);
 
-            btnStart = new Button { Text = "開始", Location = new Point(306, 156), Size = new Size(140, 34) };
+            btnStart = new Button { Text = "開始", Location = new Point(306, 166), Size = new Size(140, 34) };
             btnStart.Click += delegate { if (router == null) StartRouting(); else StopRouting(null); };
             Controls.Add(btnStart);
 
-            AddLabel("マイクを挿す位置", 16, 208);
-            btnLeft = AddModeButton("左のみ\nCtrl+Alt+1", 16, ChannelMode.Left);
-            btnBoth = AddModeButton("両方\nCtrl+Alt+2", 164, ChannelMode.Both);
-            btnRight = AddModeButton("右のみ\nCtrl+Alt+3", 312, ChannelMode.Right);
+            AddLabel("出力のON／ミュート（クリックで切り替え）", 16, 216);
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+            {
+                int n = i;
+                Button b = new Button { Location = new Point(16 + i * 222, 240), Size = new Size(208, 76), FlatStyle = FlatStyle.Flat };
+                b.Font = new Font("Meiryo UI", 11F, FontStyle.Bold);
+                b.Click += delegate { SetMuted(n, !muted[n]); };
+                Controls.Add(b);
+                btnMute[i] = b;
+            }
+            btnBothOn = new Button { Text = "両方ON（Ctrl+Alt+3）", Location = new Point(16, 322), Size = new Size(430, 32) };
+            btnBothOn.Click += delegate { SetMuted(0, false); SetMuted(1, false); };
+            Controls.Add(btnBothOn);
 
-            AddLabel("L", 16, 318);
-            meterL = new LevelMeter { Location = new Point(36, 318), Size = new Size(410, 20) };
-            Controls.Add(meterL);
-            AddLabel("R", 16, 346);
-            meterR = new LevelMeter { Location = new Point(36, 346), Size = new Size(410, 20) };
-            Controls.Add(meterR);
+            AddLabel("入力", 16, 370);
+            meterIn = AddMeter(370);
+            AddLabel("出力1", 16, 398);
+            meterOut[0] = AddMeter(398);
+            AddLabel("出力2", 16, 426);
+            meterOut[1] = AddMeter(426);
 
-            chkTop = new CheckBox { Text = "常に手前に表示", Location = new Point(16, 380), AutoSize = true };
+            chkTop = new CheckBox { Text = "常に手前に表示", Location = new Point(16, 458), AutoSize = true };
             chkTop.CheckedChanged += delegate { TopMost = chkTop.Checked; };
             Controls.Add(chkTop);
 
-            lblStatus = AddLabel("停止中", 16, 410);
+            lblStatus = AddLabel("停止中", 16, 488);
             lblStatus.AutoSize = false;
             lblStatus.Size = new Size(430, 44);
 
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(462, 464);
+            ClientSize = new Size(462, 540);
             ResumeLayout(false);
 
             timer = new Timer { Interval = 50 };
@@ -88,7 +104,7 @@ namespace ChannelSwitcher
             timer.Start();
 
             LoadSettings();
-            UpdateModeButtons();
+            UpdateMuteButtons();
         }
 
         Label AddLabel(string text, int x, int y)
@@ -105,78 +121,97 @@ namespace ChannelSwitcher
             return c;
         }
 
-        Button AddModeButton(string text, int x, ChannelMode m)
+        LevelMeter AddMeter(int y)
         {
-            Button b = new Button { Text = text, Location = new Point(x, 232), Size = new Size(134, 70), FlatStyle = FlatStyle.Flat };
-            b.Font = new Font("Meiryo UI", 11F, FontStyle.Bold);
-            b.Click += delegate { SetMode(m); };
-            Controls.Add(b);
-            return b;
+            LevelMeter m = new LevelMeter { Location = new Point(70, y), Size = new Size(376, 20) };
+            Controls.Add(m);
+            return m;
         }
 
-        void SetMode(ChannelMode m)
+        void SetMuted(int output, bool value)
         {
-            mode = m;
-            if (router != null) router.Mode = m;
-            UpdateModeButtons();
+            muted[output] = value;
+            if (router != null) router.SetMuted(output, value);
+            UpdateMuteButtons();
         }
 
-        void UpdateModeButtons()
+        void UpdateMuteButtons()
         {
-            StyleModeButton(btnLeft, mode == ChannelMode.Left, LeftColor);
-            StyleModeButton(btnBoth, mode == ChannelMode.Both, BothColor);
-            StyleModeButton(btnRight, mode == ChannelMode.Right, RightColor);
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+            {
+                Button b = btnMute[i];
+                Color c = OutputColors[i];
+                string head = "出力" + (i + 1) + "（Ctrl+Alt+" + (i + 1) + "）";
+                b.Text = head + "\n" + (muted[i] ? "ミュート中" : "ON");
+                b.BackColor = muted[i] ? SystemColors.Control : c;
+                b.ForeColor = muted[i] ? MutedColor : Color.White;
+                b.FlatAppearance.BorderColor = muted[i] ? MutedColor : c;
+                b.FlatAppearance.BorderSize = muted[i] ? 1 : 3;
+            }
             UpdateStatus();
         }
 
-        static void StyleModeButton(Button b, bool selected, Color color)
-        {
-            b.BackColor = selected ? color : SystemColors.Control;
-            b.ForeColor = selected ? Color.White : SystemColors.ControlText;
-            b.FlatAppearance.BorderColor = color;
-            b.FlatAppearance.BorderSize = selected ? 3 : 1;
-        }
-
-        void LoadDevices(string preferIn, string preferOut)
+        void LoadDevices(string preferIn, string preferOut1, string preferOut2)
         {
             string[] ins = AudioRouter.GetInputDevices();
             string[] outs = AudioRouter.GetOutputDevices();
             cboIn.Items.Clear();
             cboIn.Items.AddRange(ins);
-            cboOut.Items.Clear();
-            cboOut.Items.AddRange(outs);
 
-            cboIn.SelectedIndex = FindIndex(ins, preferIn, null);
-            if (cboIn.SelectedIndex < 0) cboIn.SelectedIndex = FindIndex(ins, null, "マイク");
-            if (cboIn.SelectedIndex < 0) cboIn.SelectedIndex = FindIndex(ins, null, "Mic");
+            cboIn.SelectedIndex = FindExact(ins, preferIn);
+            if (cboIn.SelectedIndex < 0) cboIn.SelectedIndex = FindContains(ins, "マイク", 0);
+            if (cboIn.SelectedIndex < 0) cboIn.SelectedIndex = FindContains(ins, "Mic", 0);
             if (cboIn.SelectedIndex < 0 && ins.Length > 0) cboIn.SelectedIndex = 0;
 
-            int cable = FindIndex(outs, null, "CABLE Input");
-            cboOut.SelectedIndex = FindIndex(outs, preferOut, null);
-            if (cboOut.SelectedIndex < 0) cboOut.SelectedIndex = cable;
+            string[] prefer = { preferOut1, preferOut2 };
+            int cables = 0;
+            for (int i = 0; i < outs.Length; i++) if (IsCable(outs[i])) cables++;
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+            {
+                cboOut[i].Items.Clear();
+                cboOut[i].Items.AddRange(outs);
+                int idx = FindExact(outs, prefer[i]);
+                if (idx < 0) idx = FindContains(outs, "CABLE", i);   // 見つかった仮想ケーブルを順に割り当てる
+                cboOut[i].SelectedIndex = idx;
+            }
 
-            lblCable.Text = cable < 0 ? "※ VB-CABLE が見つかりません（README参照）" : "";
+            lblCable.Text = cables < 2 ? "※ 仮想ケーブルが2本見つかりません（README参照）" : "";
         }
 
-        static int FindIndex(string[] names, string exact, string contains)
+        static bool IsCable(string name)
+        {
+            return name.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        static int FindExact(string[] names, string exact)
+        {
+            if (string.IsNullOrEmpty(exact)) return -1;
+            return Array.IndexOf(names, exact);
+        }
+
+        static int FindContains(string[] names, string part, int nth)
         {
             for (int i = 0; i < names.Length; i++)
             {
-                if (!string.IsNullOrEmpty(exact) && names[i] == exact) return i;
-                if (!string.IsNullOrEmpty(contains) && names[i].IndexOf(contains, StringComparison.OrdinalIgnoreCase) >= 0) return i;
+                if (names[i].IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (nth-- == 0) return i;
             }
             return -1;
         }
 
         void StartRouting()
         {
-            if (cboIn.SelectedIndex < 0 || cboOut.SelectedIndex < 0)
+            if (cboIn.SelectedIndex < 0 || cboOut[0].SelectedIndex < 0 || cboOut[1].SelectedIndex < 0)
             {
-                MessageBox.Show(this, "入力と出力のデバイスを選んでください。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "入力と出力1・出力2のデバイスを選んでください。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            string outName = cboOut.Text;
-            if (outName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) < 0)
+            if (cboOut[0].SelectedIndex == cboOut[1].SelectedIndex)
+            {
+                MessageBox.Show(this, "出力1と出力2には別々のデバイスを選んでください。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!IsCable(cboOut[0].Text) || !IsCable(cboOut[1].Text))
             {
                 DialogResult ans = MessageBox.Show(this,
                     "出力先が仮想ケーブルではないようです。\nスピーカーに出すとハウリングすることがあります。続けますか？",
@@ -184,8 +219,8 @@ namespace ChannelSwitcher
                 if (ans != DialogResult.Yes) return;
             }
 
-            AudioRouter r = new AudioRouter(cboIn.SelectedIndex, cboOut.SelectedIndex);
-            r.Mode = mode;
+            AudioRouter r = new AudioRouter(cboIn.SelectedIndex, new int[] { cboOut[0].SelectedIndex, cboOut[1].SelectedIndex });
+            for (int i = 0; i < AudioRouter.OutputCount; i++) r.SetMuted(i, muted[i]);
             try
             {
                 r.Start();
@@ -198,7 +233,7 @@ namespace ChannelSwitcher
             }
             router = r;
             btnStart.Text = "停止";
-            cboIn.Enabled = cboOut.Enabled = btnRefresh.Enabled = false;
+            SetDeviceControlsEnabled(false);
             UpdateStatus();
         }
 
@@ -210,19 +245,25 @@ namespace ChannelSwitcher
                 router = null;
             }
             btnStart.Text = "開始";
-            cboIn.Enabled = cboOut.Enabled = btnRefresh.Enabled = true;
-            meterL.Level = 0;
-            meterR.Level = 0;
+            SetDeviceControlsEnabled(true);
+            meterIn.Level = 0;
+            foreach (LevelMeter m in meterOut) m.Level = 0;
             UpdateStatus();
             if (error != null)
                 MessageBox.Show(this, "停止しました。\n" + error, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
+        void SetDeviceControlsEnabled(bool enabled)
+        {
+            cboIn.Enabled = btnRefresh.Enabled = enabled;
+            foreach (ComboBox c in cboOut) c.Enabled = enabled;
+        }
+
         void UpdateStatus()
         {
             if (lblStatus == null) return;
-            string modeText = mode == ChannelMode.Left ? "左のみ" : mode == ChannelMode.Right ? "右のみ" : "両方";
-            string s = (router != null ? "動作中" : "停止中") + "　／　モード: " + modeText;
+            string s = (router != null ? "動作中" : "停止中") + "　／　"
+                + "出力1: " + (muted[0] ? "ミュート" : "ON") + "　出力2: " + (muted[1] ? "ミュート" : "ON");
             if (!hotkeysOk) s += "\n※ ショートカットは他のアプリと重複して使えません（ボタンで操作してください）";
             lblStatus.Text = s;
         }
@@ -235,16 +276,17 @@ namespace ChannelSwitcher
                 StopRouting(router.LastError);
                 return;
             }
-            meterL.Level = router.PeakLeft / 32768.0;
-            meterR.Level = router.PeakRight / 32768.0;
+            meterIn.Level = router.InputPeak / 32768.0;
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+                meterOut[i].Level = router.GetOutputPeak(i) / 32768.0;
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             hotkeysOk = true;
-            for (int i = 0; i < 3; i++)
-                hotkeysOk &= RegisterHotKey(Handle, i + 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x31 + i);
+            for (int id = 1; id <= 3; id++)
+                hotkeysOk &= RegisterHotKey(Handle, id, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x30 + id);
             UpdateStatus();
         }
 
@@ -253,9 +295,8 @@ namespace ChannelSwitcher
             if (m.Msg == WM_HOTKEY)
             {
                 int id = m.WParam.ToInt32();
-                if (id == 1) SetMode(ChannelMode.Left);
-                else if (id == 2) SetMode(ChannelMode.Both);
-                else if (id == 3) SetMode(ChannelMode.Right);
+                if (id == HotkeyBothOn) { SetMuted(0, false); SetMuted(1, false); }
+                else if (id >= 1 && id <= AudioRouter.OutputCount) SetMuted(id - 1, !muted[id - 1]);
             }
             base.WndProc(ref m);
         }
@@ -265,13 +306,13 @@ namespace ChannelSwitcher
             SaveSettings();
             timer.Stop();
             StopRouting(null);
-            for (int i = 1; i <= 3; i++) UnregisterHotKey(Handle, i);
+            for (int id = 1; id <= 3; id++) UnregisterHotKey(Handle, id);
             base.OnFormClosing(e);
         }
 
         void LoadSettings()
         {
-            string inName = null, outName = null;
+            string inName = null, out1 = null, out2 = null;
             try
             {
                 if (File.Exists(settingsPath))
@@ -282,14 +323,16 @@ namespace ChannelSwitcher
                         if (eq < 0) continue;
                         string key = line.Substring(0, eq), val = line.Substring(eq + 1);
                         if (key == "input") inName = val;
-                        else if (key == "output") outName = val;
-                        else if (key == "mode") { int v; if (int.TryParse(val, out v) && v >= 0 && v <= 2) mode = (ChannelMode)v; }
+                        else if (key == "output1") out1 = val;
+                        else if (key == "output2") out2 = val;
+                        else if (key == "mute1") muted[0] = val == "1";
+                        else if (key == "mute2") muted[1] = val == "1";
                         else if (key == "topmost") chkTop.Checked = val == "1";
                     }
                 }
             }
             catch (Exception) { }
-            LoadDevices(inName, outName);
+            LoadDevices(inName, out1, out2);
         }
 
         void SaveSettings()
@@ -299,8 +342,10 @@ namespace ChannelSwitcher
                 Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
                 File.WriteAllLines(settingsPath, new string[] {
                     "input=" + cboIn.Text,
-                    "output=" + cboOut.Text,
-                    "mode=" + (int)mode,
+                    "output1=" + cboOut[0].Text,
+                    "output2=" + cboOut[1].Text,
+                    "mute1=" + (muted[0] ? "1" : "0"),
+                    "mute2=" + (muted[1] ? "1" : "0"),
                     "topmost=" + (chkTop.Checked ? "1" : "0"),
                 });
             }
@@ -308,7 +353,7 @@ namespace ChannelSwitcher
         }
     }
 
-    // 入力レベルを dB 表示するシンプルなメーター
+    // 音量レベルを dB 表示するシンプルなメーター
     public class LevelMeter : Control
     {
         double shown;
