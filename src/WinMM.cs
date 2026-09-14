@@ -88,6 +88,9 @@ namespace ChannelSwitcher
         [DllImport("winmm.dll")] public static extern int waveOutReset(IntPtr hwo);
         [DllImport("winmm.dll")] public static extern int waveOutClose(IntPtr hwo);
 
+        [DllImport("winmm.dll")] public static extern int timeBeginPeriod(int uPeriod);
+        [DllImport("winmm.dll")] public static extern int timeEndPeriod(int uPeriod);
+
         public static string ErrorText(int code)
         {
             StringBuilder sb = new StringBuilder(256);
