@@ -37,6 +37,9 @@ namespace ChannelSwitcher
         readonly Button[] btnMute = new Button[AudioRouter.OutputCount];
         readonly LevelMeter[] meterOut = new LevelMeter[AudioRouter.OutputCount];
         readonly bool[] muted = new bool[AudioRouter.OutputCount];
+        readonly TrackBar[] trkVolume = new TrackBar[AudioRouter.OutputCount];
+        readonly Label[] lblVolume = new Label[AudioRouter.OutputCount];
+        const int MaxVolumePercent = 200;
         Button btnRefresh, btnStart, btnBothOn;
         LevelMeter meterIn;
         Label lblMeterIn, lblStatus, lblCable;
@@ -119,7 +122,7 @@ namespace ChannelSwitcher
             Controls.Add(pnlFile);
 
             // --- 共通（出力・ミュート・メーター） ---
-            pnlLower = new Panel { Location = new Point(0, 116), Size = new Size(462, 464) };
+            pnlLower = new Panel { Location = new Point(0, 116), Size = new Size(462, 504) };
             for (int i = 0; i < AudioRouter.OutputCount; i++)
             {
                 AddLabel(pnlLower, "出力" + (i + 1), 16, 4 + i * 34);
@@ -146,29 +149,44 @@ namespace ChannelSwitcher
                 pnlLower.Controls.Add(b);
                 btnMute[i] = b;
             }
-            btnBothOn = new Button { Text = "両方ON（Ctrl+Alt+3）", Location = new Point(16, 248), Size = new Size(430, 32) };
+            // 出力ごとの音量（0〜200%）。％表示をダブルクリックで 100% に戻す
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+            {
+                int n = i;
+                AddLabel(pnlLower, "音量", 16 + i * 222, 254);
+                TrackBar t = new TrackBar { Location = new Point(52 + i * 222, 248), AutoSize = false, Size = new Size(124, 30),
+                    Minimum = 0, Maximum = MaxVolumePercent, Value = 100, TickStyle = TickStyle.None, SmallChange = 5, LargeChange = 10 };
+                t.ValueChanged += delegate { SetVolume(n, trkVolume[n].Value); };
+                pnlLower.Controls.Add(t);
+                trkVolume[i] = t;
+                Label l = AddLabel(pnlLower, "100%", 176 + i * 222, 254);
+                l.DoubleClick += delegate { trkVolume[n].Value = 100; };
+                lblVolume[i] = l;
+            }
+
+            btnBothOn = new Button { Text = "両方ON（Ctrl+Alt+3）", Location = new Point(16, 288), Size = new Size(430, 32) };
             btnBothOn.Click += delegate { SetMuted(0, false); SetMuted(1, false); };
             pnlLower.Controls.Add(btnBothOn);
 
-            lblMeterIn = AddLabel(pnlLower, "入力", 16, 296);
-            meterIn = AddMeter(296);
-            AddLabel(pnlLower, "出力1", 16, 324);
-            meterOut[0] = AddMeter(324);
-            AddLabel(pnlLower, "出力2", 16, 352);
-            meterOut[1] = AddMeter(352);
+            lblMeterIn = AddLabel(pnlLower, "入力", 16, 336);
+            meterIn = AddMeter(336);
+            AddLabel(pnlLower, "出力1", 16, 364);
+            meterOut[0] = AddMeter(364);
+            AddLabel(pnlLower, "出力2", 16, 392);
+            meterOut[1] = AddMeter(392);
 
-            chkTop = new CheckBox { Text = "常に手前に表示", Location = new Point(16, 384), AutoSize = true };
+            chkTop = new CheckBox { Text = "常に手前に表示", Location = new Point(16, 424), AutoSize = true };
             chkTop.CheckedChanged += delegate { TopMost = chkTop.Checked; };
             pnlLower.Controls.Add(chkTop);
 
-            lblStatus = AddLabel(pnlLower, "停止中", 16, 412);
+            lblStatus = AddLabel(pnlLower, "停止中", 16, 452);
             lblStatus.AutoSize = false;
             lblStatus.Size = new Size(430, 44);
             Controls.Add(pnlLower);
 
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(462, 580);
+            ClientSize = new Size(462, 620);
             ResumeLayout(false);
 
             timer = new Timer { Interval = 50 };
@@ -228,6 +246,14 @@ namespace ChannelSwitcher
             if (router != null) router.SetMuted(output, value);
             if (player != null) player.SetMuted(output, value);
             UpdateMuteButtons();
+        }
+
+        void SetVolume(int output, int percent)
+        {
+            float v = percent / 100f;
+            if (router != null) router.SetVolume(output, v);
+            if (player != null) player.SetVolume(output, v);
+            lblVolume[output].Text = percent + "%";
         }
 
         void UpdateMuteButtons()
@@ -347,7 +373,11 @@ namespace ChannelSwitcher
             if (!ValidateOutputs()) return;
 
             AudioRouter r = new AudioRouter(cboIn.SelectedIndex, new int[] { cboOut[0].SelectedIndex, cboOut[1].SelectedIndex });
-            for (int i = 0; i < AudioRouter.OutputCount; i++) r.SetMuted(i, muted[i]);
+            for (int i = 0; i < AudioRouter.OutputCount; i++)
+            {
+                r.SetMuted(i, muted[i]);
+                r.SetVolume(i, trkVolume[i].Value / 100f);
+            }
             try
             {
                 r.Start();
@@ -454,6 +484,7 @@ namespace ChannelSwitcher
             {
                 p.SetSource(i, (SourceChannel)cboSource[i].SelectedIndex);
                 p.SetMuted(i, muted[i]);
+                p.SetVolume(i, trkVolume[i].Value / 100f);
             }
             try
             {
@@ -613,6 +644,8 @@ namespace ChannelSwitcher
                         else if (key == "monitor") monitorName = val;
                         else if (key == "mute1") muted[0] = val == "1";
                         else if (key == "mute2") muted[1] = val == "1";
+                        else if ((key == "vol1" || key == "vol2") && int.TryParse(val, out v) && v >= 0 && v <= MaxVolumePercent)
+                            trkVolume[key == "vol1" ? 0 : 1].Value = v;
                         else if (key == "topmost") chkTop.Checked = val == "1";
                         else if (key == "source") fileMode = val == "file";
                         else if (key == "file") file = val;
@@ -639,6 +672,8 @@ namespace ChannelSwitcher
                     "monitor=" + (cboMonitor.SelectedIndex > 0 ? cboMonitor.Text : ""),
                     "mute1=" + (muted[0] ? "1" : "0"),
                     "mute2=" + (muted[1] ? "1" : "0"),
+                    "vol1=" + trkVolume[0].Value,
+                    "vol2=" + trkVolume[1].Value,
                     "topmost=" + (chkTop.Checked ? "1" : "0"),
                     "source=" + (FileMode ? "file" : "mic"),
                     "file=" + txtFile.Text,

@@ -17,6 +17,7 @@ namespace ChannelSwitcher
         readonly int inputDevice;
         readonly int[] outputDevices;
         readonly bool[] initialMuted = new bool[OutputCount];
+        readonly float[] initialVolume = { 1f, 1f };
         readonly AudioOutput[] outputs = new AudioOutput[OutputCount];
         IntPtr hIn = IntPtr.Zero;
         int inChannels;
@@ -39,6 +40,13 @@ namespace ChannelSwitcher
             initialMuted[output] = muted;
             AudioOutput o = outputs[output];
             if (o != null) o.Muted = muted;
+        }
+
+        public void SetVolume(int output, float volume)
+        {
+            initialVolume[output] = volume;
+            AudioOutput o = outputs[output];
+            if (o != null) o.Volume = volume;
         }
 
         public int GetOutputPeak(int output) { AudioOutput o = outputs[output]; return o == null ? 0 : o.Peak; }
@@ -82,6 +90,7 @@ namespace ChannelSwitcher
                 {
                     outputs[i] = new AudioOutput(outputDevices[i], "出力" + (i + 1));
                     outputs[i].Muted = initialMuted[i];
+                    outputs[i].Volume = initialVolume[i];
                 }
 
                 for (int i = 0; i < InputBufferCount; i++)

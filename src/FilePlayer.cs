@@ -19,6 +19,7 @@ namespace ChannelSwitcher
         readonly int monitorDevice;
         readonly int[] sources = new int[OutputCount];
         readonly bool[] muted = new bool[OutputCount];
+        readonly float[] volumes = { 1f, 1f };
 
         WavReader reader;
         readonly AudioOutput[] outputs = new AudioOutput[OutputCount];
@@ -50,6 +51,13 @@ namespace ChannelSwitcher
             if (o != null) o.Muted = value;
         }
 
+        public void SetVolume(int output, float value)
+        {
+            volumes[output] = value;
+            AudioOutput o = outputs[output];
+            if (o != null) o.Volume = value;
+        }
+
         public int GetOutputPeak(int output) { AudioOutput o = outputs[output]; return o == null ? 0 : o.Peak; }
         public int SourcePeak { get { return sourcePeak; } }
         public string LastError { get { return lastError; } }
@@ -66,6 +74,7 @@ namespace ChannelSwitcher
                 {
                     outputs[i] = new AudioOutput(outputDevices[i], "出力" + (i + 1));
                     outputs[i].Muted = muted[i];
+                    outputs[i].Volume = volumes[i];
                 }
                 if (monitorDevice >= 0) monitor = new AudioOutput(monitorDevice, "モニター");
 

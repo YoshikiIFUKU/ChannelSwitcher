@@ -65,6 +65,7 @@ namespace ChannelSwitcher
         double gain = -1;                                     // -1 = 未初期化（最初の書き込みでミュート状態に合わせる）
 
         public volatile bool Muted;
+        public volatile float Volume = 1f;                   // 1 = 100%。1 を超える分は増幅（はみ出た分は頭打ち）
         public volatile int Peak;
         public volatile int Dropped;
 
@@ -97,10 +98,10 @@ namespace ChannelSwitcher
         }
 
         // モノラルの音を左右両方に書き込む。ミュート中も無音を送り続けて、受け手側のストリームを途切れさせない。
-        // 切り替え時のプツッというノイズを避けるため、1バッファ（20ms）かけてゲインを変える。
+        // 切り替え時のプツッというノイズを避けるため、1バッファ（20ms）かけてゲイン（ミュート×音量）を変える。
         public void WriteMono(short[] mono, int frames)
         {
-            double target = Muted ? 0.0 : 1.0;
+            double target = Muted ? 0.0 : Volume;
             if (gain < 0) gain = target;
             double step = (target - gain) / frames;
             double g = gain;
@@ -109,6 +110,8 @@ namespace ChannelSwitcher
             {
                 g += step;
                 int v = (int)(mono[i] * g);
+                if (v > 32767) v = 32767;
+                else if (v < -32768) v = -32768;
                 samples[2 * i] = (short)v;
                 samples[2 * i + 1] = (short)v;
                 if (v < 0) v = -v;
