@@ -10,7 +10,7 @@ namespace ChannelSwitcher
     {
         const int WM_HOTKEY = 0x0312;
         const int MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_NOREPEAT = 0x4000;
-        const int HotkeyBothOn = 3;
+        const int HotkeyBothOn = 3, HotkeySwap = 4;
         const int TrackMax = 1000;
 
         [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
@@ -40,7 +40,7 @@ namespace ChannelSwitcher
         readonly TrackBar[] trkVolume = new TrackBar[AudioRouter.OutputCount];
         readonly Label[] lblVolume = new Label[AudioRouter.OutputCount];
         const int MaxVolumePercent = 200;
-        Button btnRefresh, btnStart, btnBothOn;
+        Button btnRefresh, btnStart, btnBothOn, btnSwap;
         LevelMeter meterIn;
         Label lblMeterIn, lblStatus, lblCable;
         CheckBox chkTop;
@@ -164,7 +164,11 @@ namespace ChannelSwitcher
                 lblVolume[i] = l;
             }
 
-            btnBothOn = new Button { Text = "両方ON（Ctrl+Alt+3）", Location = new Point(16, 288), Size = new Size(430, 32) };
+            btnSwap = new Button { Text = "入れ替え（Ctrl+Alt+4）", Location = new Point(16, 288), Size = new Size(208, 32) };
+            btnSwap.Click += delegate { SwapOutputs(); };
+            pnlLower.Controls.Add(btnSwap);
+
+            btnBothOn = new Button { Text = "両方ON（Ctrl+Alt+3）", Location = new Point(238, 288), Size = new Size(208, 32) };
             btnBothOn.Click += delegate { SetMuted(0, false); SetMuted(1, false); };
             pnlLower.Controls.Add(btnBothOn);
 
@@ -246,6 +250,13 @@ namespace ChannelSwitcher
             if (router != null) router.SetMuted(output, value);
             if (player != null) player.SetMuted(output, value);
             UpdateMuteButtons();
+        }
+
+        // 出力1と出力2のON/ミュートを入れ替える（片方だけONのとき、もう片方だけONになる）
+        void SwapOutputs()
+        {
+            SetMuted(0, !muted[0]);
+            SetMuted(1, !muted[1]);
         }
 
         void SetVolume(int output, int percent)
@@ -340,13 +351,6 @@ namespace ChannelSwitcher
             {
                 MessageBox.Show(this, "出力1と出力2には別々のデバイスを選んでください。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
-            }
-            if (!IsCable(cboOut[0].Text) || !IsCable(cboOut[1].Text))
-            {
-                DialogResult ans = MessageBox.Show(this,
-                    "出力先が仮想ケーブルではないようです。\nスピーカーに出すとハウリングすることがあります。続けますか？",
-                    Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                if (ans != DialogResult.Yes) return false;
             }
             return true;
         }
@@ -598,7 +602,7 @@ namespace ChannelSwitcher
         {
             base.OnHandleCreated(e);
             hotkeysOk = true;
-            for (int id = 1; id <= 3; id++)
+            for (int id = 1; id <= 4; id++)
                 hotkeysOk &= RegisterHotKey(Handle, id, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x30 + id);
             UpdateStatus();
         }
@@ -609,6 +613,7 @@ namespace ChannelSwitcher
             {
                 int id = m.WParam.ToInt32();
                 if (id == HotkeyBothOn) { SetMuted(0, false); SetMuted(1, false); }
+                else if (id == HotkeySwap) SwapOutputs();
                 else if (id >= 1 && id <= AudioRouter.OutputCount) SetMuted(id - 1, !muted[id - 1]);
             }
             base.WndProc(ref m);
@@ -620,7 +625,7 @@ namespace ChannelSwitcher
             timer.Stop();
             StopRouting(null);
             StopPlayback(null, true);
-            for (int id = 1; id <= 3; id++) UnregisterHotKey(Handle, id);
+            for (int id = 1; id <= 4; id++) UnregisterHotKey(Handle, id);
             base.OnFormClosing(e);
         }
 
